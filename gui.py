@@ -142,7 +142,7 @@ class FactorModelApp:
         input_frame = ttk.LabelFrame(main_p, text="Portfolio Capital & Target Factor Tilts")
         
         # Input Block 1: Portfolio Capital Allocation Size
-        ttk.Label(input_frame, text="Portfolio Gross Size (Capital $):", font=("Helvetica", 9, "bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 2), sticky="w")
+        ttk.Label(input_frame, text="Portfolio Size (Capital $):", font=("Helvetica", 9, "bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 2), sticky="w")
         self.portfolio_capital_var = tk.StringVar(value="500000") 
         ttk.Entry(input_frame, textvariable=self.portfolio_capital_var, width=15).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
         
@@ -379,6 +379,10 @@ class FactorModelApp:
         if rebalance_triggered or self.portfolio_df is None:
             engine = FactorModelEngine(self.stocks_df)
             w_target = engine.generate_portfolio_weights(self.exposure_matrix, self.residuals, targets)
+
+            sum_pos_target = w_target[w_target > 0].sum()
+            if sum_pos_target > 0:
+                w_target = w_target / sum_pos_target
         else:
             w_target = w_curr.copy()
             messagebox.showinfo("Status", "Current portfolios stay within risk bounds. Tracking trade actions bypassed.")
