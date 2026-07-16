@@ -17,7 +17,7 @@ class FactorModelApp:
     def __init__(self, root):
         self.root = root
         self.root.title("SGX Barra-Style Factor Model System")
-        self.root.geometry("1350x800")
+        self.root.geometry("1400x850")
         
         # Global Operational Data States
         self.stocks_df = None
@@ -69,7 +69,31 @@ class FactorModelApp:
         self.setup_tab3()
         self.setup_tab4()
 
+    def sort_treeview(self, tree, col, reverse=True):
+        """Centralized sorting utility that strips format strings dynamically."""
+        items = [(tree.set(k, col), k) for k in tree.get_children('')]
+        def parse_value(val):
+            clean = val.replace('%', '').replace('$', '').replace(',', '').replace('+', '').strip()
+            try:
+                return float(clean)
+            except ValueError:
+                return val.lower()
+
+        items.sort(key=lambda t: parse_value(t[0]), reverse=reverse)
+        for index, (val, k) in enumerate(items):
+            tree.move(k, '', index)
+        tree.heading(col, command=lambda: self.sort_treeview(tree, col, not reverse))
+
     def setup_tab1(self):
+        toggle_frame = ttk.Frame(self.tab1)
+        toggle_frame.pack(fill="x", padx=5, pady=5)
+        
+        self.view_mode_var = tk.StringVar(value="Contributions")
+        ttk.Radiobutton(toggle_frame, text="Show Factor Contributions (%)", variable=self.view_mode_var, 
+                        value="Contributions", command=self.populate_asset_decomposition).pack(side="left", padx=10)
+        ttk.Radiobutton(toggle_frame, text="Show Factor Loadings (Exposures)", variable=self.view_mode_var, 
+                        value="Loadings", command=self.populate_asset_decomposition).pack(side="left", padx=10)
+
         self.tree_decomp = ttk.Treeview(
             self.tab1, 
             columns=("Ticker", "Name", "Latest Return", "Market", "Banks", "Real Estate", "Others", "Value", "Momentum", "Volatility", "Size", "Residual"), 
@@ -78,7 +102,7 @@ class FactorModelApp:
         self.tree_decomp.pack(fill="both", expand=True)
         
         for col in self.tree_decomp["columns"]:
-            self.tree_decomp.heading(col, text=col)
+            self.tree_decomp.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.tree_decomp, c, True))
             if col == "Name":
                 self.tree_decomp.column(col, width=180, anchor="w") 
             elif col == "Ticker":
@@ -89,46 +113,53 @@ class FactorModelApp:
     def setup_tab2(self):
         self.tree_factors = ttk.Treeview(
             self.tab2, 
-            columns=("Factor", "Daily (1D)", "Weekly (5D)", "Monthly (21D)", "60-Day (Qtr)"), 
+            columns=("Factor", "Daily (1D)", "Weekly (5D)", "Monthly (21D)", "60-Day (Qtr)", "Yearly (252D)"), 
             show="headings"
         )
         self.tree_factors.pack(fill="both", expand=True)
         
         for col in self.tree_factors["columns"]:
-            self.tree_factors.heading(col, text=col)
+            self.tree_factors.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.tree_factors, c, True))
             if col == "Factor":
                 self.tree_factors.column(col, width=150, anchor="w")
             else:
-                self.tree_factors.column(col, width=150, anchor="center")
+                self.tree_factors.column(col, width=130, anchor="center")
 
     def setup_tab5(self):
-        self.chart_label = ttk.Label(self.tab5, text="Import stock universe data to generate 60-day historical performance plots.", font=("Helvetica", 11, "italic"))
+        self.chart_label = ttk.Label(self.tab5, text="Import stock universe data to generate 252-day historical performance plots.", font=("Helvetica", 11, "italic"))
         self.chart_label.pack(expand=True, pady=20)
 
     def setup_tab3(self):
+        """Initializes Portfolio Factor Tilts view with custom target, capital, and min weight constraints."""
         main_p = ttk.Panedwindow(self.tab3, orient="horizontal")
         main_p.pack(fill="both", expand=True)
         
         self.tree_exp = ttk.Treeview(main_p, columns=("Factor", "Current Portfolio Exposure"), show="headings")
         for col in self.tree_exp["columns"]:
-            self.tree_exp.heading(col, text=col)
+            self.tree_exp.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.tree_exp, c, True))
             self.tree_exp.column(col, width=180, anchor="center")
             
         input_frame = ttk.LabelFrame(main_p, text="Portfolio Capital & Target Factor Tilts")
         
+        # Input Block 1: Portfolio Capital Allocation Size
         ttk.Label(input_frame, text="Portfolio Gross Size (Capital $):", font=("Helvetica", 9, "bold")).grid(row=0, column=0, columnspan=2, padx=10, pady=(10, 2), sticky="w")
-        self.portfolio_capital_var = tk.StringVar(value="100000") 
-        ttk.Entry(input_frame, textvariable=self.portfolio_capital_var, width=15).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 15), sticky="w")
+        self.portfolio_capital_var = tk.StringVar(value="500000") 
+        ttk.Entry(input_frame, textvariable=self.portfolio_capital_var, width=15).grid(row=1, column=0, columnspan=2, padx=10, pady=(0, 10), sticky="w")
+        
+        # ADDED - Input Block 2: Minimum Weight Truncation Limit
+        ttk.Label(input_frame, text="Min Weight Floor Threshold (Decimal):", font=("Helvetica", 9, "bold")).grid(row=2, column=0, columnspan=2, padx=10, pady=(0, 2), sticky="w")
+        self.min_weight_var = tk.StringVar(value="0.01") # Defaults parameter to 1% allocations
+        ttk.Entry(input_frame, textvariable=self.min_weight_var, width=15).grid(row=3, column=0, columnspan=2, padx=10, pady=(0, 15), sticky="w")
         
         self.target_entries = {}
-        # RESTORED: 'Market' is fully integrated back into target parameters
         factors = ['Market', 'Banks', 'Real Estate', 'Others', 'Value', 'Momentum', 'Volatility', 'Size']
         
+        # Grid rows shifted downward by 4 intervals to make clean physical clearance for the parameters above
         for i, f in enumerate(factors):
-            ttk.Label(input_frame, text=f"{f}:").grid(row=i+2, column=0, padx=10, pady=4, sticky="w")
+            ttk.Label(input_frame, text=f"{f}:").grid(row=i+4, column=0, padx=10, pady=4, sticky="w")
             var = tk.StringVar(value="1.0" if f == 'Market' else "0.0")
             ent = ttk.Entry(input_frame, textvariable=var, width=10)
-            ent.grid(row=i+2, column=1, padx=10, pady=4)
+            ent.grid(row=i+4, column=1, padx=10, pady=4)
             self.target_entries[f] = var
             
         main_p.add(self.tree_exp, weight=3)
@@ -143,7 +174,7 @@ class FactorModelApp:
         self.tree_trades.pack(fill="both", expand=True)
         
         for col in self.tree_trades["columns"]:
-            self.tree_trades.heading(col, text=col)
+            self.tree_trades.heading(col, text=col, command=lambda c=col: self.sort_treeview(self.tree_trades, c, True))
             if col == "Ticker":
                 self.tree_trades.column(col, width=80, anchor="center")
             elif col in ["Latest Close", "Current Shares", "Target Shares", "Trade Shares"]:
@@ -163,13 +194,19 @@ class FactorModelApp:
             self.prices_df = fetcher.fetch_historical_prices()
             self.metadata_df = fetcher.fetch_metadata()
             
+            downloaded_tickers = [t for t in tickers if t in self.prices_df.columns]
+            if not downloaded_tickers:
+                raise ValueError("Yahoo Finance returned no stock data matching your codes.")
+            
+            self.stocks_df = self.stocks_df[self.stocks_df['yf_ticker'].isin(downloaded_tickers)]
+            
             engine = FactorModelEngine(self.stocks_df)
             daily_mcap, daily_size, daily_value, daily_momentum, daily_vol = engine.compute_daily_system_matrices(
                 self.prices_df, self.metadata_df
             )
             
             self.factor_returns, self.residuals, self.exposure_matrix = engine.decompose_returns(
-                self.prices_df, daily_mcap, daily_size, daily_value, daily_momentum, daily_vol
+                self.prices_df, daily_mcap, daily_size, daily_value, daily_momentum, daily_vol, lookback_days=252
             )
             
             self.populate_asset_decomposition()
@@ -185,29 +222,24 @@ class FactorModelApp:
             return
 
         if hasattr(self, 'chart_label') and self.chart_label is not None:
-            try:
-                self.chart_label.destroy()
-            except Exception:
-                pass
+            try: self.chart_label.destroy()
+            except Exception: pass
             self.chart_label = None
 
         if self.chart_canvas is not None:
-            try:
-                self.chart_canvas.get_tk_widget().destroy()
-            except Exception:
-                pass
+            try: self.chart_canvas.get_tk_widget().destroy()
+            except Exception: pass
             self.chart_canvas = None
 
         fig = Figure(figsize=(10, 5.5), dpi=100)
         ax = fig.add_subplot(111)
-        
         cumulative_factor_returns = self.factor_returns.cumsum()
         
         for factor in cumulative_factor_returns.columns:
             linewidth = 2.5 if factor == 'Market' else 1.2
             ax.plot(cumulative_factor_returns.index, cumulative_factor_returns[factor], label=factor, linewidth=linewidth)
 
-        ax.set_title("60-Day Cumulative Factor Performance (Daily Log Return Path)", fontsize=12, fontweight='bold', pad=10)
+        ax.set_title("252-Day Cumulative Factor Performance (Daily Log Return Path)", fontsize=12, fontweight='bold', pad=10)
         ax.set_xlabel("Timeline Date", fontsize=10)
         ax.set_ylabel("Cumulative Factor Log Return", fontsize=10)
         ax.grid(True, linestyle="--", alpha=0.5)
@@ -235,24 +267,36 @@ class FactorModelApp:
         for i in self.tree_decomp.get_children():
             self.tree_decomp.delete(i)
             
+        if self.exposure_matrix is None or self.prices_df is None:
+            return
+            
         tickers = self.exposure_matrix.index.tolist()
         log_returns = np.log(self.prices_df[tickers] / self.prices_df[tickers].shift(1))
         latest_ret = log_returns.iloc[-1]
         latest_f_ret = self.factor_returns.iloc[-1]
+        mode = self.view_mode_var.get()
         
         for t in tickers:
             stk_name = self.metadata_df.loc[t, 'longName'] if 'longName' in self.metadata_df.columns else t
             ret_val = latest_ret[t] * 100
             row_exp = self.exposure_matrix.loc[t]
-            contributions = (row_exp * latest_f_ret) * 100
             res_val = self.residuals.loc[self.residuals.index[-1], t] * 100
+            
+            fact_vals = {}
+            factors = ['Market', 'Banks', 'Real Estate', 'Others', 'Value', 'Momentum', 'Volatility', 'Size']
+            
+            for f in factors:
+                if mode == "Contributions":
+                    val = row_exp[f] * latest_f_ret[f] * 100
+                    fact_vals[f] = f"{val:+.3f}%"
+                else:
+                    val = row_exp[f]
+                    fact_vals[f] = f"{val:+.4f}"
             
             self.tree_decomp.insert("", "end", values=(
                 t, stk_name, f"{ret_val:+.3f}%",
-                f"{contributions['Market']:+.3f}%", f"{contributions['Banks']:+.3f}%",
-                f"{contributions['Real Estate']:+.3f}%", f"{contributions['Others']:+.3f}%",
-                f"{contributions['Value']:+.3f}%", f"{contributions['Momentum']:+.3f}%",
-                f"{contributions['Volatility']:+.3f}%", f"{contributions['Size']:+.3f}%",
+                fact_vals['Market'], fact_vals['Banks'], fact_vals['Real Estate'], fact_vals['Others'],
+                fact_vals['Value'], fact_vals['Momentum'], fact_vals['Volatility'], fact_vals['Size'],
                 f"{res_val:+.3f}%"
             ))
 
@@ -266,7 +310,8 @@ class FactorModelApp:
         f_daily = self.factor_returns.iloc[-1] * 100
         f_weekly = self.factor_returns.iloc[-5:].sum() * 100
         f_monthly = self.factor_returns.iloc[-21:].sum() * 100
-        f_60d = self.factor_returns.sum() * 100 
+        f_60d = self.factor_returns.iloc[-60:].sum() * 100 
+        f_yearly = self.factor_returns.sum() * 100 
 
         for factor in self.factor_returns.columns:
             self.tree_factors.insert("", "end", values=(
@@ -274,7 +319,8 @@ class FactorModelApp:
                 f"{f_daily[factor]:+.4f}%",
                 f"{f_weekly[factor]:+.4f}%",
                 f"{f_monthly[factor]:+.4f}%",
-                f"{f_60d[factor]:+.4f}%"
+                f"{f_60d[factor]:+.4f}%",
+                f"{f_yearly[factor]:+.4f}%"
             ))
 
     def populate_portfolio_exposures(self):
@@ -284,13 +330,14 @@ class FactorModelApp:
         prices = self.prices_df[self.portfolio_df['yf_ticker']].iloc[-1]
         self.portfolio_df['Price'] = self.portfolio_df['yf_ticker'].map(prices)
         self.portfolio_df['MV'] = self.portfolio_df['Shares'] * self.portfolio_df['Price']
-        total_mv = self.portfolio_df['MV'].sum()
         
-        if total_mv == 0:
+        total_positive_mv = self.portfolio_df.loc[self.portfolio_df['MV'] > 0, 'MV'].sum()
+        
+        if total_positive_mv == 0:
             return
             
-        self.portfolio_df['Weight'] = self.portfolio_df['MV'] / total_mv
-        
+        # Divide positions by the sum of positive holdings
+        self.portfolio_df['Weight'] = self.portfolio_df['MV'] / total_positive_mv
         w_series = self.portfolio_df.set_index('yf_ticker')['Weight'].reindex(self.exposure_matrix.index).fillna(0.0)
         port_exposures = self.exposure_matrix.T @ w_series
         
@@ -306,6 +353,7 @@ class FactorModelApp:
             allowance = float(self.allowance_var.get())
             targets = {f: float(self.target_entries[f].get()) for f in self.target_entries}
             capital = float(self.portfolio_capital_var.get())
+            min_weight = float(self.min_weight_var.get()) # UPDATED - Parse weight truncation constraint
         except ValueError:
             messagebox.showerror("Validation Error", "Invalid numerical entry inputs inside workspace panels.")
             return
@@ -320,7 +368,6 @@ class FactorModelApp:
             shares_series = pd.Series(0.0, index=tickers)
             
         curr_exposures = self.exposure_matrix.T @ w_curr
-        
         rebalance_triggered = False
         stylized_factors = ['Value', 'Momentum', 'Volatility', 'Size']
         
@@ -336,6 +383,9 @@ class FactorModelApp:
             w_target = w_curr.copy()
             messagebox.showinfo("Status", "Current portfolios stay within risk bounds. Tracking trade actions bypassed.")
             
+        # UPDATED - Hard-clip minor tracking residuals below threshold (handles long and short sides dynamically)
+        w_target = w_target.apply(lambda w: 0.0 if abs(w) < min_weight else w)
+            
         for i in self.tree_trades.get_children():
             self.tree_trades.delete(i)
             
@@ -346,10 +396,9 @@ class FactorModelApp:
             diff_w = t_w - c_w
             
             curr_shares = int(round(shares_series.get(t, 0.0)))
-            
             raw_target_shares = (t_w * capital) / close_p if close_p > 0 else 0
             
-            # Formulates rounded 100-share SGX standard execution lot boundaries
+            # Formulates rounded 100-share SGX standard execution board lot boundaries
             target_shares_rounded = int(round(raw_target_shares / 100.0)) * 100
             trade_shares = target_shares_rounded - curr_shares
             
